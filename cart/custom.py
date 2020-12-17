@@ -152,7 +152,7 @@ class LeCartCustom(LeBasecart):
 		self._notice['target']['clear'] = next_clear
 		return next_clear
 
-	def clear_target_laguages(self):
+	def clear_target_languages(self):
 		next_clear = {
 			'result' : 'process',
 			'function' : 'clear_target_orders',
@@ -524,8 +524,6 @@ class LeCartCustom(LeBasecart):
 		customer_data['fax'] = customer['customers_fax']
 		customer_data['active'] = True
 
-		self.log(customer_data, 'customer')
-
 		address_books = get_list_from_list_by_field(customers_ext['data']['address_book'], 'customers_id', customer['customers_id'])
 		if address_books:
 			for address_book in address_books:
@@ -632,9 +630,13 @@ class LeCartCustom(LeBasecart):
 		orders_ext = self.select_multiple_data_connector(orders_ext_queries, "orders")
 		if not orders_ext or orders_ext['result'] != 'success':
 			return response_error()
+		self.log(orders_ext, 'orders_ext')
 		return orders_ext
 
 	def convert_order_export(self, order, orders_ext):
+		self.log(order, 'test_order')
+		billing_name_split = order['billing_name'].split()
+		delivery_name_split = order['delivery_name'].split()
 		order_data = self.construct_order()
 		order_data['id'] = order['orders_id']
 		order_data['status'] = order['orders_status']
@@ -674,8 +676,8 @@ class LeCartCustom(LeBasecart):
 		order_data['customer_address'] = customer_address
 		order_billing = self.construct_order_address()
 
-		billing_name = order['billing_name']
-
+		order_billing['first_name'] = billing_name_split[0]
+		order_billing['last_name'] = billing_name_split[1]
 		order_billing['address_1'] = order['billing_address1']
 		order_billing['address_2'] = order['billing_address2']
 		order_billing['city'] = order['billing_city']
@@ -690,8 +692,8 @@ class LeCartCustom(LeBasecart):
 
 		order_delivery = self.construct_order_address()
 
-		delivery_name = order['delivery_name']
-
+		order_delivery['first_name'] = delivery_name_split[0]
+		order_delivery['last_name'] = delivery_name_split[1]
 		order_delivery['address_1'] = order['delivery_address1']
 		order_delivery['address_2'] = order['delivery_address2']
 		order_delivery['city'] = order['delivery_city']
@@ -706,6 +708,7 @@ class LeCartCustom(LeBasecart):
 		order_data['shipping_address'] = order_delivery
 
 		order_products = get_list_from_list_by_field(orders_ext['data']['orders_products'], 'orders_id', order['orders_id'])
+		self.log(order_products, 'order_products')
 
 		order_items = list()
 		for order_product in order_products:
@@ -720,12 +723,17 @@ class LeCartCustom(LeBasecart):
 			order_item['price'] = order_product['products_price']
 			order_item['original_price'] = order_product['final_price']
 			order_item['discount_amount'] = '0.0000'
-			order_item['discout_percent'] = '0.0000'
+			order_item['discount_percent'] = '0.0000'
 			order_item['subtotal'] = order_item_subtotal
 			order_item['total'] = order_item_subtotal
 			order_items.append(order_item)
 
 		order_data['items'] = order_items
+		order_data['subtotal']['tax'] = order_item_tax
+		order_data['subtotal']['amount'] = order_item_subtotal
+		order_data['total']['amount'] = order_item_total
+		self.log(order_data, 'order_data_convert')
+
 		return response_success(order_data)
 
 	def get_order_id_import(self, convert, order, orders_ext):
@@ -746,7 +754,7 @@ class LeCartCustom(LeBasecart):
 	def after_order_import(self, order_id, convert, order, orders_ext):
 		return response_success()
 
-	def addition_order_import(self, convert, order, orderes_ext):
+	def addition_order_import(self, convert, order, orders_ext):
 		return response_success()
 
 	#TODO: PAGE
@@ -869,7 +877,7 @@ class LeCartCustom(LeBasecart):
 
 		products = list(map(self.escape, products))
 		products = list(map(lambda x: to_str(x), products))
-		res = "',' product_id = ".joing(products)
+		res = "',' product_id = ".join(products)
 		res = "('product_id=" + res + "')"
 		return res
 
