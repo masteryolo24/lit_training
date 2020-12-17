@@ -2248,28 +2248,41 @@ class LeCartWoocommerce(LeCartWordpress):
 		return response_success()
 
 	def category_import(self, convert, category, categories_ext):
-		self.log(convert, 'convert_categories')
 		language_code = convert.get('language_code')
 		if self.is_wpml() and not language_code or (self.is_polylang() and not language_code):
 			language_code = self._notice['target']['language_default']
 		slug = convert['name']
-	
+		
 		category_term = {
-			'name': convert['name'],
+			'name': self.strip_html_tag(convert['name']),
 			'slug': slug,
+			'term_group': 0,
 		}
 		category_term_query = self.create_insert_query_connector('terms', category_term)
 		term_id = self.import_data_connector(category_term_query, 'category')
-
+		
 		category_taxonomy = {
 			'term_id': term_id,
 			'taxonomy': 'product_cat',
-			'description': '',
+			'description': convert['description'],
 			'parent': 0,
 			'count': convert['sort_order']
 		}
 		category_taxonomy_query = self.create_insert_query_connector('term_taxonomy', category_taxonomy)
 		category_term_import = self.import_category_data_connector(category_taxonomy_query, True, convert['id'])
+		
+		self.insert_map(self.TYPE_CATEGORY if not self.blog_running else self.TYPE_CATEGORY_BLOG, convert['id'], category_term_import, to_str(convert['code']), slug, term_id, language_code)
+		taxonomy_meta_table = 'termmeta'
+		all_queries = list()
+		meta_display_insert = {
+			'term_id': term_id,
+			'meta_key': 'display_type',
+			'meta_value': convert.get('display_type', '')
+		}
+		all_queries.append(self.create_insert_query_connector(taxonomy_meta_table, meta_display_insert))
+
+		if all_queries:
+			self.import_multiple_data_connector(all_queries, 'category')
 		return response_success(category_term_import)
 
 	def get_new_trid(self):
@@ -3439,21 +3452,23 @@ class LeCartWoocommerce(LeCartWordpress):
 		product_id = self.import_product_data_connector(product_query, True, convert['id'])
 		if not product_id:
 			return response_error('Product ' + to_str(convert['id']) + ' import false.')
-
 		return response_success(product_id)
 
 	def after_product_import(self, product_id, convert, product, products_ext):
+		language_code = convert.get('language_code')
+		product_type = 'simple'
+		if self.is_wpml() and not language_code or (self.is_polylang() and not language_code):
+			language_code = self._notice['target']['language_default']
 		all_queries = list()
 		thumbnail_id = False
-		language_code = convert.get('language_code')
 		if convert['thumb_image']['path']:
 			image_process = self.process_image_before_import(convert['thumb_image']['url'], convert['thumb_image']['path'])
 			image_import_path = self.uploadImageConnector(image_process, self.add_prefix_path(self.make_woocommerce_image_path(image_process['path']), self._notice['target']['config']['image_product'].rstrip('/')))
 			if image_import_path:
 				product_image = self.remove_prefix_path(image_import_path, self._notice['target']['config']['image_product'])
 				image_details = self.get_sizes(image_process['url'])
-				thumbnail_id = self.wp_image(product_image, image_details)
-				if thumbnail_id:
+				thumbnail_id = self.wp_image(product_image, image_details, convert['thumb_image'].get('label', ''))
+				if thumbnail_id and self.is_wpml():
 					all_queries.append(self.get_query_img_wpml(thumbnail_id, language_code))
 		gallery_ids = list()
 		if convert['images']:
@@ -3463,11 +3478,12 @@ class LeCartWoocommerce(LeCartWordpress):
 				if image_import_path:
 					product_image = self.remove_prefix_path(image_import_path, self._notice['target']['config']['image_product'])
 					image_details = self.get_sizes(image_process['url'])
-					img_id = self.wp_image(product_image, image_details)
+					img_id = self.wp_image(product_image, image_details, image['label'])
 					if img_id:
 						gallery_ids.append(img_id)
 						if self.is_wpml():
-							all_queries.append(self.get_query_img_wpml(thumbnail_id, language_code))
+							all_queries.append(self.get_query_img_wpml(img_id, language_code))
+
 		stock_status = 'instock'
 		product_meta = {
 			'_sku' : convert['sku'],
@@ -3481,7 +3497,7 @@ class LeCartWoocommerce(LeCartWordpress):
 			'_thumbnail_id' : thumbnail_id if thumbnail_id else '',
 			'_manage_stock' : 'yes' if convert['manage_stock'] or convert['manage_stock'] == True else 'no',
 		}
-
+		
 		all_meta_queries = list()
 		for meta_key, meta_value in product_meta.items():
 			meta_insert = {
@@ -3493,19 +3509,28 @@ class LeCartWoocommerce(LeCartWordpress):
 			all_meta_queries.append(meta_query)
 		if all_meta_queries:
 			self.import_multiple_data_connector(all_meta_queries, 'products')
-			all_meta_queries = list()
 
-		product_meta_data = {
-			'product_id': product_id,
-			'sku': convert['sku'],
-			'stock_quantity': convert['qty'] if convert['qty'] else 0,
-			'stock_status' : stock_status,
-		}
-		all_queries.append(self.create_insert_query_connector('wc_product_meta_lookup', product_meta_data))
-		
+		all_categories = list()
+		if convert['categories']:
+			for category in convert['categories']:
+				category_id = self.get_map_field_by_src(self.TYPE_CATEGORY, category['id'], category['code'], language_code)
+				if not category_id:
+					category_id = self.get_map_field_by_src(self.TYPE_CATEGORY, None, category['code'], language_code)
+				if not category_id:
+					category_id = self.get_map_field_by_src(self.TYPE_CATEGORY, category['id'], None, language_code)
+				if category_id:
+					all_categories.append(category_id)
+			all_categories = list(set(all_categories))
+			for cate_id in all_categories:
+				category_data = {
+					'object_id': product_id,
+					'term_taxonomy_id': cate_id,
+					'term_order': 0
+				}
+				category_query = self.create_insert_query_connector("term_relationships", category_data)
+				all_queries.append(category_query)
 		if all_queries:
 			self.import_multiple_data_connector(all_queries, 'product')
-
 		return response_success()
 
 	def addition_product_import(self, convert, product, products_ext):
