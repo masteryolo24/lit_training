@@ -4016,12 +4016,12 @@ class LeCartWoocommerce(LeCartWordpress):
 			prefix = to_str(prefix).replace(to_str(self._notice['target']['config'].get('site_id')) + '_', '')
 		user_meta = dict()
 		queries_user = list()
-		user_meta_import_first = {
+		user_meta_import = {
 			'nickname': convert['email'],
 			'first_name': convert['first_name'],
 			'last_name': convert['last_name'],
 		}
-		for meta_key, meta_value in user_meta_import_first.items():
+		for meta_key, meta_value in user_meta_import.items():
 			meta_insert = {
 				'user_id': customer_id,
 				'meta_key': meta_key,
@@ -4081,6 +4081,20 @@ class LeCartWoocommerce(LeCartWordpress):
 				all_queries.append(meta_query)
 			if all_queries:
 				self.import_multiple_data_connector(all_queries, 'customer')
+		customer_data = {
+			'user_id': customer_id,
+			'username': get_value_by_key_in_dict(convert, 'username', convert['email']),
+			'first_name': convert['first_name'],
+			'last_name': convert['last_name'],
+			'email': convert['email'],
+			'date_last_active': convert['updated_at'],
+			'date_registered': convert['created_at'],
+			'country': convert['address'][0]['country']['country_code'],
+			'postcode': convert['address'][0].get('postcode', ''),
+			'city': convert['address'][0].get('city', ''),
+			'state': convert['address'][0]['state']['state_code'],
+		}
+		self.import_data_connector(self.create_insert_query_connector('wc_customer_lookup', customer_data), 'customer')
 		return response_success()
 
 	def addition_customer_import(self, convert, customer, customers_ext):
@@ -4528,6 +4542,8 @@ class LeCartWoocommerce(LeCartWordpress):
 		customer = convert['customer']
 		billing_address = convert['billing_address']
 		shipping_address = convert['shipping_address']
+		self.log(billing_address, 'billing_address')
+		self.log(shipping_address, 'shipping_address')
 
 		order_meta = {
 			'_billing_first_name': get_value_by_key_in_dict(billing_address, 'first_name', '' ),
@@ -4537,8 +4553,20 @@ class LeCartWoocommerce(LeCartWordpress):
 			'_billing_address_2': get_value_by_key_in_dict(billing_address, 'address_2', ''),
 			'_billing_city': get_value_by_key_in_dict(billing_address, 'city', ''),
 			'_billing_state': get_value_by_key_in_dict(billing_address['state'], 'state_code', billing_address['state']['name']) if billing_address and billing_address['state'] else '',
+			'_billing_country': get_value_by_key_in_dict(billing_address['country'], 'country_code', '') if billing_address and billing_address['country'] else '',
 			'_billing_postcode': get_value_by_key_in_dict(billing_address, 'postcode', ''),
 			'_billing_phone': get_value_by_key_in_dict(billing_address, 'telephone', ''),
+			'_shipping_first_name': get_value_by_key_in_dict(shipping_address, 'first_name', ''),
+			'_shipping_last_name': get_value_by_key_in_dict(shipping_address, 'last_name', ''),
+			'_shipping_company': get_value_by_key_in_dict(shipping_address, 'company', ''),
+			'_shipping_address_1': get_value_by_key_in_dict(shipping_address, 'address_1', ''),
+			'_shipping_address_2': get_value_by_key_in_dict(shipping_address, 'address_2', ''),
+			'_shipping_city': get_value_by_key_in_dict(shipping_address, 'city', ''),
+			'_shipping_state': get_value_by_key_in_dict(shipping_address['state'], 'state_code', billing_address['state']['name']) if billing_address and billing_address['state'] else '',
+			'_shipping_country': get_value_by_key_in_dict(shipping_address['country'], 'country_code', '') if billing_address and billing_address['country'] else '',
+			'_shipping_postcode': get_value_by_key_in_dict(shipping_address, 'postcode', ''),
+			'_shipping_phone': get_value_by_key_in_dict(shipping_address, 'telephone', ''),
+			'_order_total': convert['total']['amount'],
 		}
 
 		for meta_key, meta_value in order_meta.items():
@@ -4573,7 +4601,7 @@ class LeCartWoocommerce(LeCartWordpress):
 				'_product_id': product_id,
 				'_variation_id': '',
 				'_line_subtotal': subtotal,
-				'_line_total': item['total'],
+				'_line_total': subtotal,
 				'_line_subtotal_tax': 0,
 				'_line_tax': 0,
 				'_line_tax_data': php_serialize({
