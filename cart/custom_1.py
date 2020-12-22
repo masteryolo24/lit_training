@@ -1035,7 +1035,7 @@ class LeCartCustom(LeBasecart):
 			# 	'type': 'select',
 			# 	'query': "SELECT *  FROM _DBPRF_orders_status_history WHERE orders_id IN  " + self.list_to_in_condition(
 			# 		order_ids) + " ORDER BY orders_status_history_id DESC"
-			# },
+			# },country_idscocountry_idsucountry_idsntry_ids
 			'countries': {
 				'type': 'select',
 				'query': "SELECT * FROM Countries WHERE alpha IN " + self.list_to_in_condition(country_ids)

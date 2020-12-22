@@ -2814,6 +2814,7 @@ class LeCartShopify(LeBasecart):
 		return response_success()
 
 	def order_import(self, convert, order, orders_ext):
+		self.log(convert, 'convert_order_import')
 		if convert.get('financial_status'):
 			financial_status = convert['financial_status']
 		else:
@@ -3059,7 +3060,9 @@ class LeCartShopify(LeBasecart):
 			}
 			order_items.append(item)
 		post_data['order']['line_items'] = order_items
+		self.log(post_data, 'post_data')
 		response = self.api('orders.json', post_data, 'Post')
+		self.log(response, 'response')
 		response = json_decode(response)
 
 		retry = 5
@@ -3089,8 +3092,7 @@ class LeCartShopify(LeBasecart):
 			# call api again
 			response = self.api('orders.json', post_data, 'Post')
 			response = json_decode(response)
-		self.log(post_data, 'post_data')
-		self.log(response, 'response_check')
+
 		check_response = self.check_response_import(response, convert, 'order')
 		if check_response['result'] != 'success':
 			return check_response

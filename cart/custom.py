@@ -45,7 +45,7 @@ class LeCartCustom(LeBasecart):
 		if self._notice['config']['add_new']:
 			recent = self.get_recent(self._migration_id)
 			if recent:
-				types = ['address_book', 'categories', 'categories_description', 'countries', 'currencies', 'customers', 'customers_info', 'languages', 'orders', 'orders_products', 'orders_total', 'products', 'products_description', 'products_to_categories', 'zones']
+				types = ['attribute','product_attribute','address_book', 'categories', 'categories_description', 'countries', 'currencies', 'customers', 'customers_info', 'languages', 'orders', 'orders_products', 'orders_total', 'products', 'products_description', 'products_to_categories', 'zones']
 				for _type in types:
 					self._notice['process'][_type]['id_src'] = recent['process'][_type]['id_src']
 					self._notice['process'][_type]['total'] = 0
@@ -208,6 +208,37 @@ class LeCartCustom(LeBasecart):
 		self._notice['target']['clear'] = next_clear
 		return next_clear
 
+
+	#TODO: attribute
+	# def prepare_attributes_import(self):
+	# 	return self
+
+	# def prepare_atributes_export(self):
+	# 	return self
+
+	# def get_attributes_main_export(self):
+	# 	id_src = self._notice['process']['categories']['id_src']
+	# 	limit = self._notice['setting']['categories']
+	# 	query = {
+	# 		'type': 'select',
+	# 		'query': "SELECT * FROM attribute WHERE attribute_id > " + to_str(id_src) + " ORDER BY attribute_id ASC LIMIT " + to_str(limit)
+	# 	}
+	# 	attributes = self.select_data_connector(query, 'attributes')
+	# 	if not attributes or attributes['result'] != 'success':
+	# 		return response_error('Could not get attributes main to export')
+	# 	return attributes
+
+	# def get_attribute_ext_export(self, attributes):
+	# 	attribute_ids = duplicate_field_value_from_list(attributes['data'], 'attribute_id')
+
+	# 	attrinute_ext_queries = {
+	# 		'attribute_name':{
+	# 		'type': 'select',
+	# 		'query': "SELECT * FROM attribute WHERE "
+	# 		}
+	# 	}
+
+
 	#TODO: category
 
 	def prepare_categories_import(self):
@@ -250,6 +281,8 @@ class LeCartCustom(LeBasecart):
 			return response_warning()
 		return categories_ext
 
+
+
 	def convert_category_export(self, category, categories_ext):
 		category_data = self.construct_category()
 		parent = self.construct_category_parent()
@@ -266,7 +299,6 @@ class LeCartCustom(LeBasecart):
 
 		category_description = get_list_from_list_by_field(categories_ext['data']['categories_description'], 'categories_id', category['categories_id'])[0]
 		category_data['name'] = category_description['categories_name']
-
 		for language_id, label in self._notice['src']['languages'].items():
 			category_language_data = self.construct_category_lang()
 			lang = get_list_from_list_by_field(categories_ext['data']['languages'], 'languages_id', language_id)[0]
@@ -280,7 +312,14 @@ class LeCartCustom(LeBasecart):
 		category_data['sort_order'] = category['sort_order']
 		category_data['created_at'] = to_str(datetime.fromtimestamp(to_int(category['date_added']))) if category['date_added'] else '0000-00-00 00:00:00'
 		category_data['updated_at'] = to_str(datetime.fromtimestamp(to_int(category['last_modified']))) if category['last_modified'] else '0000-00-00 00:00:00'
-		
+		# category_data['meta_description'] = self.strip_html_tag(category['page_title'])
+		if category_description:
+			category_data['description'] = category_description['categories_name'] if category_description['categories_name']!='' else  category_description['categories_name']
+		else:
+			category_data['description'] = ''
+
+		category_data['category'] = category
+		category_data['categories_ext'] = categories_ext
 		return response_success(category_data)
 
 	def get_category_id_import(self, convert, category, categories_ext):
@@ -340,6 +379,14 @@ class LeCartCustom(LeBasecart):
 				'type': 'select',
 				'query': "SELECT * FROM products_to_categories WHERE products_id IN " + product_id_con,
 			},
+			'product_attribute':{
+				'type': 'select',
+				'query': "SELECT * FROM product_attribute WHERE product_id IN " + product_id_con,
+			},
+			'attribute':{
+				'type': 'select',
+				'query': "SELECT * FROM attribute as attr INNER JOIN product_attribute as pa" + " ON attr.attribute_id = pa.attribute_id WHERE pa.product_id IN " + product_id_con,
+			},
 		}
 
 		product_ext = self.select_multiple_data_connector(product_ext_queries, "products")
@@ -361,6 +408,8 @@ class LeCartCustom(LeBasecart):
 		return product_ext
 
 	def convert_product_export(self, product, products_ext):
+		self.log(products_ext, 'products_ext')
+		self.log(product, 'product')
 		products_ext_data = products_ext['data']
 
 		product_data = self.construct_product()
@@ -400,18 +449,30 @@ class LeCartCustom(LeBasecart):
 				product_category_data['id'] = product_category['categories_id']
 				product_data['categories'].append(product_category_data)
 
-		if self._notice['config']['seo_301']:
-			detect_seo = self.detect_seo()
-			product_data['seo'] = getattr(self, 'products_' + detect_seo)(product, products_ext)
+		#attribute
+
+		#product_attributes = get_list_from_list_by_field(products_ext_data['product_attribute'], 'product_id', product['products_id'])
+		product_attributes = get_list_from_list_by_field(products_ext_data['attribute'], 'product_id', product['products_id'])
+
+		if product_attributes:
+			for product_attribute in product_attributes:
+				product_attribute_data = self.construct_product_attribute()
+				product_attribute_data['option_id'] = product_attribute['attribute_code']
+				product_attribute_data['option_code_save'] = product_attribute['attribute_code']
+				product_attribute_data['option_code'] = product_attribute['attribute_code'] 
+				product_attribute_data['option_type'] = product_attribute['attribute_type']
+				product_attribute_data['option_name'] = product_attribute['attribute_name']
+				product_attribute_data['option_value_name'] = product_attribute['value']
+				product_data['attributes'].append(product_attribute_data)
 		return response_success(product_data)
 
 	def get_product_id_import(self, convert, product, products_ext):
 		return product['products_id']
 
-	def check_product_id_import (self, convert, product, products_ext):
+	def check_product_import (self, convert, product, products_ext):
 		return True if self.get_map_field_by_src(self.TYPE_PRODUCT, convert['products_id'], convert['code']) else False
 
-	def router_product_id_import(self, convert, product, products_ext):
+	def router_product_import(self, convert, product, products_ext):
 		return response_success('product_import')
 
 	def before_product_import(self, convert, product, products_ext):
@@ -630,11 +691,9 @@ class LeCartCustom(LeBasecart):
 		orders_ext = self.select_multiple_data_connector(orders_ext_queries, "orders")
 		if not orders_ext or orders_ext['result'] != 'success':
 			return response_error()
-		self.log(orders_ext, 'orders_ext')
 		return orders_ext
 
 	def convert_order_export(self, order, orders_ext):
-		self.log(order, 'test_order')
 		billing_name_split = order['billing_name'].split()
 		delivery_name_split = order['delivery_name'].split()
 		order_data = self.construct_order()
@@ -708,7 +767,6 @@ class LeCartCustom(LeBasecart):
 		order_data['shipping_address'] = order_delivery
 
 		order_products = get_list_from_list_by_field(orders_ext['data']['orders_products'], 'orders_id', order['orders_id'])
-		self.log(order_products, 'order_products')
 
 		order_items = list()
 		for order_product in order_products:
@@ -732,7 +790,6 @@ class LeCartCustom(LeBasecart):
 		order_data['subtotal']['tax'] = order_item_tax
 		order_data['subtotal']['amount'] = order_item_subtotal
 		order_data['total']['amount'] = order_item_total
-		self.log(order_data, 'order_data_convert')
 
 		return response_success(order_data)
 

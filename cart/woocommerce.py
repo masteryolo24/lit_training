@@ -3102,6 +3102,54 @@ class LeCartWoocommerce(LeCartWordpress):
 		return product['ID']
 
 	def check_product_import(self, convert, product, products_ext):
+		language_code = convert.get('language_code')
+		product_id = self.get_map_field_by_src(self.TYPE_PRODUCT, convert['id'], convert['code'], lang = language_code)
+		all_queries = list()
+		pro_attr = dict()
+		if convert['attributes']:
+			position = 0
+			for option in convert['attributes']:
+				pro_attr_code = self.get_pro_attr_code_default(option)
+				woo_attribute_id = self.get_woo_attribute_id(pro_attr_code, option['option_name'], language_code, option)
+						
+				option_value = option['option_value_name']
+				descs = get_value_by_key_in_dict(option, 'option_value_description', '')
+							
+				opt_value_id = self.get_woo_attribute_value(option_value, pro_attr_code, language_code, option, descs)
+				if not opt_value_id:
+					continue
+				relationship = {
+					'object_id': product_id,
+					'term_taxonomy_id': opt_value_id,
+					'term_order': 0
+				}
+				all_queries.append(self.create_insert_query_connector('term_relationships', relationship))
+
+				pro_attr["pa_" + pro_attr_code] = {
+					'name': "pa_" + pro_attr_code,
+					'value': option['option_value_name'],
+					'position': position,
+					'is_visible': 1,
+					'is_variation': 0,
+					'is_taxonomy': 1
+				}
+				position += 1
+					
+			if pro_attr:
+				update_attr = {
+					'post_id': product_id,
+					'meta_key': '_product_attributes',
+					'meta_value': php_serialize(pro_attr)
+				}
+				where_attr_update = {
+					'post_id': product_id,
+					'meta_key': '_product_attributes'
+				}
+
+			attribute_update_query = self.create_update_query_connector("postmeta", update_attr, where_attr_update)
+			self.import_data_connector(attribute_update_query, 'product')
+		if all_queries:
+			self.import_multiple_data_connector(all_queries, 'product')
 		return self.get_map_field_by_src(self.TYPE_PRODUCT, convert['id'], convert['code'], lang = self._notice['target']['language_default'])
 
 	def update_latest_data_product(self, product_id, convert, product, products_ext):
@@ -3424,6 +3472,7 @@ class LeCartWoocommerce(LeCartWordpress):
 		return response_success()
 
 	def product_import(self, convert, product, products_ext):
+		self.log(convert, 'convert')
 		product_data = {
 			'post_author': 1,
 			'post_date': convert['created_at'] if convert['created_at'] and '0000-00-00' not in convert['created_at'] else get_current_time(),
@@ -3452,9 +3501,12 @@ class LeCartWoocommerce(LeCartWordpress):
 		product_id = self.import_product_data_connector(product_query, True, convert['id'])
 		if not product_id:
 			return response_error('Product ' + to_str(convert['id']) + ' import false.')
+		self.insert_map(self.TYPE_PRODUCT, convert['id'], product_id, convert['code'])
 		return response_success(product_id)
 
 	def after_product_import(self, product_id, convert, product, products_ext):
+		self.log(product_id, 'product_id')
+		self.log(convert, 'convert_after_pro_import')
 		language_code = convert.get('language_code')
 		product_type = 'simple'
 		if self.is_wpml() and not language_code or (self.is_polylang() and not language_code):
@@ -3486,6 +3538,7 @@ class LeCartWoocommerce(LeCartWordpress):
 
 		stock_status = 'instock'
 		product_meta = {
+			'_product_attributes': php_serialize(list()),
 			'_sku' : convert['sku'],
 			'_stock_status' : stock_status,
 			'_weight' : convert['weight'] if convert['weight'] else '',
@@ -5222,40 +5275,6 @@ class LeCartWoocommerce(LeCartWordpress):
 					'term_group': 0,
 				}
 				term_id = self.import_product_data_connector(self.create_insert_query_connector('terms', value_term), 'products')
-
-				# Testing: code image
-				image = attribute_data['thumb_image']
-				if image:
-					# Testing: import image
-					# if convert['options']:
-					# 	for image in convert['options']:
-					# check co image:
-					# -> code uploads image -> id_img
-					# url = 'https://karengee.com/media/catalog/product'
-
-					image_path = image['path']
-					image_url = image['url']
-					if image_path and image_url:
-						image_process = self.process_image_before_import(image_url, image_path)
-						image_import_path = self.uploadImageConnector(image_process, self.add_prefix_path(self.make_woocommerce_image_path(image_process['path']), self._notice['target']['config']['image'].rstrip('/')))
-						if image_import_path:
-							product_image = self.remove_prefix_path(image_import_path, self._notice['target']['config']['image'])
-							image_details = self.get_sizes(image_process['url'])
-							img_id = self.wp_image(product_image, image_details, image['label'])
-
-							value_image_1 = {
-								'term_id': term_id,
-								'meta_key': 'pa_' + pro_attr_code + '_swatches_id_photo',
-								'meta_value': img_id,
-							}
-							self.import_product_data_connector(self.create_insert_query_connector('termmeta', value_image_1), 'products')
-							value_image_2 = {
-								'term_id': term_id,
-								'meta_key': 'pa_' + pro_attr_code + '_swatches_id_type',
-								'meta_value': 'photo',
-							}
-							self.import_product_data_connector(self.create_insert_query_connector('termmeta', value_image_2), 'products')
-							self.log(product_image, 'product_image')
 
 				value_term_taxonomy = {
 					'term_id': term_id,
